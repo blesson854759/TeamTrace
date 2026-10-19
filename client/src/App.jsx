@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, BookOpenCheck,
+  Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, BookOpenCheck, ClipboardCheck,
   CalendarDays, Check, CheckCheck, ChevronDown, CircleHelp, ClipboardList, Clock3,
   Code2, FileText, Filter, Github, LayoutDashboard, Link2, LoaderCircle, LogOut,
   Menu, MessageSquareWarning, MoreHorizontal, Plus, RefreshCw, Search, Settings2,
@@ -20,6 +20,7 @@ const navItems = [
   { id: 'disputes', label: 'Disputes', icon: MessageSquareWarning },
   { id: 'activity', label: 'Audit history', icon: Activity }
 ]
+const facultyNavItem = { id: 'faculty-review', label: 'Faculty review', icon: ClipboardCheck }
 const categories = ['Development', 'Testing', 'Documentation', 'Collaboration', 'Planning']
 const statusLabels = { todo: 'To do', in_progress: 'In progress', review: 'In review', done: 'Completed' }
 const statusOrder = ['todo', 'in_progress', 'review', 'done']
@@ -173,6 +174,7 @@ function App() {
   const [token, setToken] = useState(() => oauthCallback.token || localStorage.getItem('teamtrace-token') || '')
   const [user, setUser] = useState(() => oauthCallback.user)
   const [projects, setProjects] = useState([])
+  const [projectsReady, setProjectsReady] = useState(false)
   const [projectId, setProjectId] = useState('')
   const [users, setUsers] = useState([])
   const [projectMembers, setProjectMembers] = useState([])
@@ -188,7 +190,8 @@ function App() {
   const searchRef = useRef(null)
 
   const currentProject = projects.find((item) => String(item.id) === String(projectId))
-  const activePage = navItems.find((item) => item.id === page)
+  const availableNavItems = user?.role === 'faculty' ? [...navItems, facultyNavItem] : navItems
+  const activePage = availableNavItems.find((item) => item.id === page)
   const canLead = user && ['faculty', 'leader'].includes(user.role)
 
   async function login(email, password) {
@@ -244,11 +247,13 @@ function App() {
   useEffect(() => {
     if (!token) return
     let active = true
+    setProjectsReady(false)
     Promise.all([request('/auth/me', { token }), request('/projects', { token }), request('/users', { token })])
       .then(([authResult, projectResult, usersResult]) => {
         if (!active) return
         setUser(authResult.user)
         setProjects(projectResult.projects)
+        setProjectsReady(true)
         setUsers(usersResult.users)
         setProjectId((selected) => selected && projectResult.projects.some((p) => String(p.id) === String(selected))
           ? selected : String(projectResult.projects[0]?.id || ''))
@@ -256,6 +261,7 @@ function App() {
       })
       .catch((error) => {
         if (active) {
+          setProjectsReady(true)
           if (/session|sign in|expired|invalid/i.test(error.message)) logout()
           else setBootError(error.message)
         }
@@ -342,7 +348,7 @@ function App() {
       <div className="project-course">{currentProject?.course || 'Choose a project'}</div>
       <nav className="main-nav" aria-label="Main navigation">
         <span className="nav-caption">YOUR SPACE</span>
-        {navItems.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-item ${page === id ? 'active' : ''}`} onClick={() => changePage(id)}>
+        {availableNavItems.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-item ${page === id ? 'active' : ''}`} onClick={() => changePage(id)}>
           <Icon size={17} strokeWidth={1.8} /><span>{label}</span>
           {id === 'disputes' && data.dashboard?.summary?.openDisputes > 0 && <i className="nav-count">{data.dashboard.summary.openDisputes}</i>}
         </button>)}
@@ -359,12 +365,12 @@ function App() {
     {mobileNav && <button className="mobile-scrim" aria-label="Close menu" onClick={() => setMobileNav(false)} />}
     <main className="main-area">
       <header className="topbar">
-        <div className="breadcrumb"><button className="hamburger" aria-label="Open navigation" onClick={() => setMobileNav(true)}><Menu size={19} /></button><span>Projects</span><span className="crumb-slash">/</span><b>{currentProject?.name || (projects.length ? 'Loading project' : 'No projects yet')}</b></div>
+        <div className="breadcrumb"><button className="hamburger" aria-label="Open navigation" onClick={() => setMobileNav(true)}><Menu size={19} /></button><span>Projects</span><span className="crumb-slash">/</span><b>{page === 'faculty-review' ? 'Faculty review' : currentProject?.name || (projects.length ? 'Loading project' : 'No projects yet')}</b></div>
         {headerActions}
       </header>
       <div className="page-body">
         <div className="page-heading">
-          <div><span className="eyebrow">{page === 'overview' ? dateLabel(new Date(), { weekday: 'long', month: 'long', day: 'numeric' }) : `${currentProject?.name || ''} · ${currentProject?.course || 'PROJECT WORKSPACE'}`}</span>
+          <div><span className="eyebrow">{page === 'faculty-review' ? 'FACULTY WORKSPACE' : page === 'overview' ? dateLabel(new Date(), { weekday: 'long', month: 'long', day: 'numeric' }) : `${currentProject?.name || ''} · ${currentProject?.course || 'PROJECT WORKSPACE'}`}</span>
             <h1>{page === 'overview' ? 'The work, in focus.' : activePage?.label}</h1>
             <p>{page === 'overview' ? 'A shared view of what your team is moving forward.' : pageDescription(page)}</p>
           </div>
@@ -385,7 +391,12 @@ function App() {
         </div>
         {notice && <div className={`toast ${notice.startsWith('Could not') ? 'toast-error' : ''}`} role="status"><span>{notice.startsWith('Could not') ? <X size={15} /> : <Check size={15} />}</span>{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={14} /></button></div>}
         {bootError && <div className="error-banner page-error" role="alert">{bootError}<button onClick={() => refresh()} className="button button-subtle">Retry</button></div>}
-        {!currentProject && !bootError && <EmptyState icon={LayoutDashboard} title={canLead ? 'Start with a new project' : 'No projects in this workspace'} copy={canLead ? 'Create a workspace for your team and bring your project activity together.' : 'Ask a team leader to add you to a project.'} action={canLead && <button className="button button-primary" onClick={() => setModal({ type: 'project' })}><Plus size={15} /> Create a project</button>} />}
+        {page === 'faculty-review' && user.role === 'faculty' && <FacultyReview projects={projects} loading={!projectsReady} onReview={(project) => {
+          setProjectId(String(project.id))
+          setPage('overview')
+          setMobileNav(false)
+        }} />}
+        {page !== 'faculty-review' && !currentProject && !bootError && <EmptyState icon={LayoutDashboard} title={canLead ? 'Start with a new project' : 'No projects in this workspace'} copy={canLead ? 'Create a workspace for your team and bring your project activity together.' : 'Ask a team leader to add you to a project.'} action={canLead && <button className="button button-primary" onClick={() => setModal({ type: 'project' })}><Plus size={15} /> Create a project</button>} />}
         {currentProject && <>
           {page === 'overview' && <Overview data={data} project={currentProject} tasks={data.tasks} scores={data.scores} loading={loading} onNavigate={changePage} onCreate={() => setModal({ type: 'task' })} canLead={canLead} />}
           {page === 'tasks' && <Tasks tasks={data.tasks} search={search} user={user} canLead={canLead} onStatus={(task, status) => doAction(() => request(`/tasks/${task.id}`, { token, method: 'PUT', body: { status } }), 'Task status updated.')} onCreate={() => setModal({ type: 'task' })} onEdit={(task) => setModal({ type: 'task-edit', task })} onDelete={(task) => {
@@ -405,8 +416,62 @@ function App() {
   </div>
 }
 
+function FacultyReview({ projects, loading, onReview }) {
+  const taskTotal = projects.reduce((sum, project) => sum + Number(project.task_count || 0), 0)
+  const completedTotal = projects.reduce((sum, project) => sum + Number(project.completed_count || 0), 0)
+  const inReview = projects.filter((project) => project.stage === 'Review').length
+
+  if (loading) return <div className="faculty-review-loading" role="status"><LoaderCircle size={18} className="spin" /> Loading project progress…</div>
+  if (!projects.length) return <EmptyState icon={ClipboardCheck} title="No projects to review yet" copy="Projects you can review will appear here as their task work is recorded." />
+
+  return <div className="faculty-review">
+    <section className="faculty-summary" aria-label="Project progress summary">
+      <div className="faculty-summary-copy">
+        <span className="eyebrow">PROJECT PULSE</span>
+        <h2>Progress, as recorded.</h2>
+        <p>One view across the projects in your faculty workspace.</p>
+      </div>
+      <div className="faculty-summary-stats">
+        <div><span>Projects</span><strong>{projects.length}</strong></div>
+        <div><span>Tasks completed</span><strong>{completedTotal}<small> / {taskTotal}</small></strong></div>
+        <div><span>In review</span><strong>{inReview}</strong></div>
+      </div>
+    </section>
+    <div className="faculty-method-note"><ShieldCheck size={17} /><p><b>Task-based progress, not an official grade.</b><span>Completion is completed tasks ÷ all tasks. The stage is derived from current task statuses and is intended as a review signal only.</span></p></div>
+    <section className="faculty-project-list" aria-label="All project progress">
+      <div className="faculty-list-head" aria-hidden="true">
+        <span>PROJECT</span><span>OWNER</span><span>TEAM</span><span>TASKS</span><span>COMPLETION</span><span>STAGE</span><span></span>
+      </div>
+      {projects.map((project) => {
+        const percent = Number(project.completion_percent || 0)
+        const memberCount = Number(project.member_count || 0)
+        const taskCount = Number(project.task_count || 0)
+        const stageClass = project.stage.toLowerCase().replace(/\s+/g, '-')
+        return <article className="faculty-project-row" key={project.id}>
+          <div className="faculty-project-identity" data-label="Project">
+            <span className="faculty-project-mark">{project.name.slice(0, 1).toUpperCase()}</span>
+            <span><b>{project.name}</b><small>{project.course || 'No course listed'}</small></span>
+          </div>
+          <div className="faculty-project-owner" data-label="Owner">{project.owner_name}</div>
+          <div className="faculty-project-team" data-label="Team">{memberCount}<small> {memberCount === 1 ? 'member' : 'members'}</small></div>
+          <div className="faculty-project-tasks" data-label="Tasks">{taskCount === 0
+            ? <b>No tasks</b>
+            : <><b>{project.completed_count}</b><span> / {taskCount} complete</span></>}</div>
+          <div className="faculty-project-progress" data-label="Completion">
+            <span className="faculty-progress-value">{percent}%</span>
+            <span className="faculty-progress-track" role="progressbar" aria-label={`${project.name} task completion`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={percent}><i style={{ width: `${percent}%` }} /></span>
+          </div>
+          <div className="faculty-project-stage" data-label="Stage"><Pill tone={stageClass}>{project.stage}</Pill></div>
+          <div className="faculty-project-action"><button className="button button-outline" type="button" onClick={() => onReview(project)} aria-label={`Review ${project.name}`}>Review project <ArrowRight size={14} /></button></div>
+        </article>
+      })}
+    </section>
+  </div>
+}
+
 function pageDescription(page) {
   return {
+    'faculty-review': 'A task-based overview of progress across every project you can review.',
     tasks: 'A clear view of ownership, momentum, and what comes next.',
     evidence: 'Work is more than a number. Keep the context close.',
     reports: 'Contribution signals, grounded in work your team can review.',

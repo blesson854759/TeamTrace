@@ -108,6 +108,46 @@ test('health, authenticated profile, and project authorization are available', a
     .send({ project_id: projectId, title: 'Unauthorized task' })).status, 403)
 })
 
+test('faculty project list aggregates task progress and keeps the global view faculty-only', async () => {
+  const outsideOwner = await register('Other Project Owner', 'other-owner@example.test', 'leader')
+  assert.equal(outsideOwner.status, 201)
+  const ownerId = outsideOwner.body.user.id
+  const cases = [
+    { name: 'Empty project', statuses: [], expected: { task_count: 0, todo_count: 0, in_progress_count: 0, review_count: 0, completed_count: 0, completion_percent: 0, stage: 'Planning' } },
+    { name: 'Planning project', statuses: ['todo', 'todo'], expected: { task_count: 2, todo_count: 2, in_progress_count: 0, review_count: 0, completed_count: 0, completion_percent: 0, stage: 'Planning' } },
+    { name: 'In progress project', statuses: ['in_progress', 'done', 'todo'], expected: { task_count: 3, todo_count: 1, in_progress_count: 1, review_count: 0, completed_count: 1, completion_percent: 33, stage: 'In progress' } },
+    { name: 'Review project', statuses: ['review', 'todo'], expected: { task_count: 2, todo_count: 1, in_progress_count: 0, review_count: 1, completed_count: 0, completion_percent: 0, stage: 'Review' } },
+    { name: 'Complete project', statuses: ['done', 'done'], expected: { task_count: 2, todo_count: 0, in_progress_count: 0, review_count: 0, completed_count: 2, completion_percent: 100, stage: 'Complete' } }
+  ]
+  for (const item of cases) {
+    const project = db.prepare(`INSERT INTO projects (name, course, owner_id) VALUES (?, 'TEST 200', ?)`)
+      .run(item.name, ownerId)
+    for (const status of item.statuses) {
+      db.prepare(`INSERT INTO tasks (project_id, title, status, created_by) VALUES (?, ?, ?, ?)`)
+        .run(project.lastInsertRowid, `${item.name} ${status}`, status, leaderId)
+    }
+  }
+
+  const facultyProjects = await request(app).get('/api/projects').set('Authorization', ['Bearer', facultyToken].join(' '))
+  assert.equal(facultyProjects.status, 200)
+  for (const item of cases) {
+    const project = facultyProjects.body.projects.find((entry) => entry.name === item.name)
+    assert.ok(project, `Faculty should see ${item.name}`)
+    assert.equal(project.owner_name, 'Other Project Owner')
+    assert.equal(project.course, 'TEST 200')
+    assert.equal(project.member_count, 0)
+    for (const [key, value] of Object.entries(item.expected)) assert.equal(project[key], value, `${item.name}: ${key}`)
+  }
+
+  for (const token of [memberToken, leaderToken]) {
+    const scopedProjects = await request(app).get('/api/projects').set('Authorization', ['Bearer', token].join(' '))
+    assert.equal(scopedProjects.status, 200)
+    assert.deepEqual(scopedProjects.body.projects.map((project) => project.id), [projectId])
+    assert.equal(Object.hasOwn(scopedProjects.body.projects[0], 'completion_percent'), false)
+    assert.equal(Object.hasOwn(scopedProjects.body.projects[0], 'stage'), false)
+  }
+})
+
 test('project leadership manages projects, memberships, and tasks', async () => {
   const created = await request(app).post('/api/projects').set('Authorization', `Bearer ${leaderToken}`)
     .send({ name: 'Temporary workspace', description: 'A short-lived project for API coverage.', course: 'TEST 101' })

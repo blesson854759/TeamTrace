@@ -332,12 +332,40 @@ app.get('/api/auth/github/callback', async (req, res) => {
 app.get('/api/auth/me', auth, (req, res) => res.json({ user: userShape(req.user) }))
 
 app.get('/api/projects', auth, (req, res) => {
-  const rows = req.user.role === 'faculty'
-    ? db.prepare(`SELECT p.*, u.name AS owner_name,
-       (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id) AS task_count,
+  if (req.user.role === 'faculty') {
+    const rows = db.prepare(`SELECT p.*, u.name AS owner_name,
+       COALESCE(progress.task_count, 0) AS task_count,
+       COALESCE(progress.todo_count, 0) AS todo_count,
+       COALESCE(progress.in_progress_count, 0) AS in_progress_count,
+       COALESCE(progress.review_count, 0) AS review_count,
+       COALESCE(progress.completed_count, 0) AS completed_count,
        (SELECT COUNT(*) FROM project_members pm JOIN users active_u ON active_u.id=pm.user_id AND active_u.disabled=0 WHERE pm.project_id=p.id) AS member_count
-       FROM projects p JOIN users u ON u.id=p.owner_id ORDER BY p.updated_at DESC`).all()
-    : db.prepare(`SELECT p.*, u.name AS owner_name,
+       FROM projects p JOIN users u ON u.id=p.owner_id
+       LEFT JOIN (
+         SELECT project_id, COUNT(*) AS task_count,
+           SUM(CASE WHEN status='todo' THEN 1 ELSE 0 END) AS todo_count,
+           SUM(CASE WHEN status='in_progress' THEN 1 ELSE 0 END) AS in_progress_count,
+           SUM(CASE WHEN status='review' THEN 1 ELSE 0 END) AS review_count,
+           SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS completed_count
+         FROM tasks GROUP BY project_id
+       ) progress ON progress.project_id=p.id
+       ORDER BY p.updated_at DESC`).all().map((project) => {
+      const complete = project.task_count > 0 && project.completed_count === project.task_count
+      const stage = complete ? 'Complete'
+        : project.review_count > 0 ? 'Review'
+          : project.in_progress_count > 0 || project.completed_count > 0 ? 'In progress'
+            : 'Planning'
+      return {
+        ...project,
+        completion_percent: project.task_count
+          ? Math.round(project.completed_count / project.task_count * 100)
+          : 0,
+        stage
+      }
+    })
+    return res.json({ projects: rows })
+  }
+  const rows = db.prepare(`SELECT p.*, u.name AS owner_name,
        (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id) AS task_count,
        (SELECT COUNT(*) FROM project_members pm JOIN users active_u ON active_u.id=pm.user_id AND active_u.disabled=0 WHERE pm.project_id=p.id) AS member_count
        FROM projects p JOIN users u ON u.id=p.owner_id

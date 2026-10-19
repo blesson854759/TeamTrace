@@ -69,6 +69,7 @@ The contribution report weights evidence categories as follows: Development 35%,
 ## Application features
 
 - Responsive React, Vite, Tailwind CSS, and Recharts workspace with overview, task board/list, evidence, contribution report, disputes, and audit history.
+- Faculty-only **Faculty review** overview of all projects, with completion calculated as completed tasks ÷ all tasks (0% when there are no tasks). Stages are derived from task statuses: all tasks completed = Complete; otherwise any task in review = Review; otherwise any in-progress or completed work = In progress; no tasks or all tasks to do = Planning. These are task-based progress signals, not official grades.
 - Express REST API with JWT sessions, bcrypt password accounts, role/project membership authorization, and validated input.
 - CRUD flows for projects, tasks, and evidence; members may update status on tasks assigned to them and manage their own evidence.
 - Real GitHub commits and pull requests for a configured project repository, with duplicate-safe imports and a project audit entry.
