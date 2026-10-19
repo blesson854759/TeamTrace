@@ -37,14 +37,14 @@ To enable GitHub OAuth for local development:
 
 1. Create a GitHub OAuth App in GitHub Developer settings.
 2. Set its **Authorization callback URL** to `http://localhost:4000/api/auth/github/callback`.
-3. Set these values in the environment used to start the API (never commit them):
+3. Copy `server/.env.example` to `server/.env` and add the app's credentials (never commit `server/.env`):
 
    ```text
    GITHUB_CLIENT_ID=...
    GITHUB_CLIENT_SECRET=...
    ```
 
-4. Restart the API. The browser will return to the Vite app at `http://localhost:5173` after GitHub verifies sign-in.
+4. Restart the API. The browser will return to the Vite app at `http://localhost:5173` after GitHub verifies sign-in. The API loads `server/.env` automatically.
 
 Optional variables:
 
